@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>VR Teleop</title>
+  <style>
+    :root {
+      --bg: #0f1115; --surface: #181b22; --surface-2: #20242d;
+      --text: #e6e8ec; --muted: #8b919e; --border: #2a2e38;
+      --accent: #4f8cff; --accent-hi: #6ba0ff;
+      --ok: #3fb950; --warn: #d29922; --err: #f85149;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      line-height: 1.5; min-height: 100vh;
+      display: flex; align-items: stretch;
+    }
+
+    /* ---------- Launcher (left, flex-grow) ---------- */
+    .launcher {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 2rem; gap: 1.25rem; text-align: center;
+    }
+    .status-strip {
+      display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.3rem 0.8rem; border-radius: 999px;
+      background: var(--surface-2); font-size: 0.85rem; color: var(--muted);
+    }
+    .pill::before {
+      content: ""; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); flex: none;
+    }
+    .pill.ok::before   { background: var(--ok);  box-shadow: 0 0 0 3px rgba(63,185,80,0.15); }
+    .pill.warn::before { background: var(--warn); }
+    .pill.err::before  { background: var(--err); }
+    h1 { margin: 0; font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; }
+    .sub { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+    button { font: inherit; cursor: pointer; transition: background 0.15s, color 0.15s, opacity 0.15s, transform 0.05s; }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .cta {
+      width: min(26rem, 90%);
+      padding: 1.6rem 2rem; margin-top: 0.5rem;
+      font-size: 1.6rem; font-weight: 600;
+      background: var(--accent); color: white; border: none;
+      border-radius: 16px; letter-spacing: 0.01em;
+    }
+    .cta:hover:not(:disabled) { background: var(--accent-hi); }
+    .links { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+    .link {
+      background: transparent; border: none; color: var(--muted);
+      font-size: 0.95rem; padding: 0.5rem 0.85rem; border-radius: 8px;
+    }
+    .link:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+    .link.active { color: var(--text); background: var(--surface-2); }
+
+    /* ---------- Debug rail (right, hidden by default) ---------- */
+    .debug-rail {
+      display: none;
+      width: 26rem; max-width: 45vw;
+      background: var(--surface); border-left: 1px solid var(--border);
+      padding: 1.25rem 1.25rem 1rem;
+      flex-direction: column; gap: 0.75rem;
+      overflow: hidden;  /* log scrolls inside */
+    }
+    body.show-debug .debug-rail { display: flex; }
+    .rail-head {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 1rem; font-weight: 600;
+    }
+    .icon-btn {
+      background: transparent; border: none; color: var(--muted);
+      font-size: 1.4rem; line-height: 1; padding: 0.15rem 0.55rem;
+      border-radius: 8px;
+    }
+    .icon-btn:hover { color: var(--text); background: var(--surface-2); }
+    label.toggle {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.25rem 0; color: var(--text); font-size: 0.9rem; cursor: pointer;
+    }
+    label.toggle input { accent-color: var(--accent); width: 1rem; height: 1rem; }
+    .stats {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem;
+      font-size: 0.82rem; color: var(--muted);
+    }
+    .stats > div { padding: 0.45rem 0.6rem; background: var(--surface-2); border-radius: 8px; }
+    .stats span { color: var(--text); font-variant-numeric: tabular-nums; }
+    #log {
+      flex: 1; min-height: 8rem;
+      background: #0b0d12; border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.55rem 0.7rem;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.75rem;
+      overflow-y: auto;
+    }
+    #log div { white-space: pre-wrap; color: var(--muted); padding: 1px 0; }
+
+    /* ---------- Calibration modal (overlay) ---------- */
+    .modal {
+      display: none; position: fixed; inset: 0; z-index: 10;
+      background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+      align-items: center; justify-content: center; padding: 1rem;
+    }
+    body.show-recalib  #recalib-modal,
+    body.show-settings #settings-modal { display: flex; }
+    .modal-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 1.25rem 1.5rem;
+      width: 100%; max-width: 32rem;
+      display: flex; flex-direction: column;
+      max-height: 90vh;  /* keep header pinned + body scrolls */
+    }
+    .modal-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.65rem; flex: none;
+    }
+    .modal-head h2 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    /* Scroll only the parameter list; keep the close button + reset
+       footer always visible. min-height:0 is the canonical fix to make
+       overflow-y work inside a flex column. */
+    .modal-body {
+      overflow-y: auto; flex: 1 1 auto; min-height: 0;
+      padding-right: 0.35rem; margin-right: -0.35rem;  /* room for the scrollbar */
+    }
+    .help {
+      padding: 0.85rem 1rem; background: var(--surface-2); border-radius: 10px;
+      font-size: 0.9rem; color: var(--muted);
+    }
+    .help p { margin: 0 0 0.45rem; }
+    .help ol { margin: 0; padding-left: 1.2rem; }
+    .help li { margin: 0.15rem 0; }
+    .help b { color: var(--text); }
+    .btn { padding: 0.7rem 0.95rem; font-size: 0.95rem; font-weight: 500; border-radius: 10px; border: 1px solid transparent; }
+    .btn-accent { background: rgba(79,140,255, 0.15); border-color: rgba(79,140,255, 0.4); color: var(--accent-hi); }
+    .btn-accent:hover:not(:disabled) { background: rgba(79,140,255, 0.25); }
+    .btn-danger { background: rgba(248, 81, 73, 0.08); border-color: rgba(248, 81, 73, 0.32); color: #ff958e; }
+    .btn-danger:hover:not(:disabled) { background: rgba(248, 81, 73, 0.16); }
+    /* Smaller variant for buttons that ride in a param row's value slot
+       (e.g. Calibrate next to the force-haptic checkbox). Disabled state
+       is taken straight from the browser default `[disabled]` styling
+       with a slight opacity drop for clarity. */
+    .btn-inline { padding: 0.3rem 0.65rem; font-size: 0.8rem; font-weight: 500; border-radius: 7px; }
+    .btn-inline:disabled { opacity: 0.4; cursor: not-allowed; }
+    /* Param-val that holds multiple controls (button + checkbox) — keep
+       them on one line so the toggle row stays compact. */
+    .param-val-row { display: inline-flex; align-items: center; gap: 0.5rem; }
+    .btn-row { display: flex; gap: 0.5rem; margin-top: 0.85rem; }
+    .btn-row .btn { flex: 1; }
+    .calib-state { margin: 0.85rem 0 0; font-size: 0.85rem; color: var(--muted); }
+    .calib-state.ok { color: var(--ok); }
+
+    /* ---------- Settings sliders ---------- */
+    .param {
+      padding: 0.5rem 0; border-top: 1px solid var(--border);
+    }
+    .param:first-of-type { border-top: none; padding-top: 0; }
+    .param-head {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.92rem;
+    }
+    .param-head label { flex: 1; cursor: pointer; }
+    .info-btn {
+      width: 1.25rem; height: 1.25rem; border-radius: 50%;
+      background: var(--surface-2); border: 1px solid var(--border);
+      color: var(--muted); font-size: 0.76rem; font-style: italic;
+      font-family: serif; line-height: 1; padding: 0;
+    }
+    .info-btn:hover { color: var(--text); background: var(--border); }
+    .param[data-info-open="true"] .info-btn { color: var(--accent-hi); border-color: rgba(79,140,255,0.4); }
+    .param-val {
+      min-width: 3.5rem; text-align: right;
+      font-variant-numeric: tabular-nums; color: var(--text);
+      font-size: 0.88rem;
+    }
+    .slider-row {
+      display: flex; align-items: center; gap: 0.55rem;
+      margin: 0.35rem 0 0;
+    }
+    .slider-row input[type="range"] {
+      flex: 1; min-width: 0; margin: 0; accent-color: var(--accent);
+    }
+    .slider-icon {
+      width: 18px; height: 18px; flex: none; color: var(--muted);
+    }
+    .param .info-body {
+      display: none; margin: 0.4rem 0 0;
+      padding: 0.5rem 0.7rem; background: var(--surface-2); border-radius: 8px;
+      font-size: 0.82rem; color: var(--muted);
+    }
+    .param[data-info-open="true"] .info-body { display: block; }
+    /* Rows that only make sense when the gripper-haptic toggle is on
+       (the per-arm threshold sliders; the Calibrate button is disabled,
+       not hidden). Hidden by default; JS adds `.haptic-on` to <body>
+       when the toggle is checked. */
+    body:not(.haptic-on) [data-haptic-only] { display: none; }
+
+    #xr-canvas { display: none; }
+
+    /* ---------- Camera overlay (2D preview only) ----------
+       Pre-flight thumbnails under the CTA so the operator can verify
+       the streams before entering VR. Inside immersive XR the same video
+       elements are sampled as WebGL textures and drawn on quads — see
+       _drawVideoQuad in client.js. */
+    .cam-overlay {
+      display: flex; gap: 0.5rem; flex-wrap: wrap;
+      justify-content: center;
+      width: min(48rem, 95%); margin-top: 0.5rem;
+    }
+    .cam-slot {
+      position: relative; flex: 1 1 0; min-width: 8rem;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden;
+      aspect-ratio: 4 / 3;
+    }
+    .cam-slot video {
+      width: 100%; height: 100%; object-fit: cover; background: #000;
+      display: block;
+    }
+    .cam-slot[data-enabled="false"] video { opacity: 0.35; filter: grayscale(1); }
+    .cam-slot[data-streaming="false"] video { opacity: 0.15; }
+    .cam-meta {
+      position: absolute; left: 0.4rem; right: 0.4rem; bottom: 0.4rem;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 0.4rem;
+      padding: 0.25rem 0.5rem;
+      background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
+      border-radius: 6px; font-size: 0.78rem; color: var(--text);
+    }
+    .cam-meta .cam-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cam-meta input { accent-color: var(--accent); width: 1rem; height: 1rem; }
+  </style>
+</head>
+<body>
+  <main class="launcher">
+    <div class="status-strip">
+      <span class="pill" id="conn-pill">connecting…</span>
+      <span class="pill" id="calib-pill">checking calibration…</span>
+    </div>
+    <h1>VR Teleop</h1>
+    <p class="sub">Drive your robot arm from your headset.</p>
+    <button id="enter-vr" class="cta" disabled>Start Teleop</button>
+    <div class="links">
+      <button class="link" id="settings-link">Settings</button>
+      <button class="link" id="recalib-link">Calibrate wrist</button>
+      <button class="link" id="debug-link">Debug</button>
+    </div>
+    <!-- Camera overlay. Populated from the server's camera_list message. -->
+    <div id="cam-overlay" class="cam-overlay" aria-label="Camera previews"></div>
+  </main>
+
+  <aside class="debug-rail" id="debug-rail" aria-label="Debug panel">
+    <div class="rail-head">
+      <span>Debug</span>
+      <button class="icon-btn" id="debug-close" aria-label="Close debug">×</button>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="show-axes-toggle">
+      Show readout-point markers in VR
+    </label>
+    <div class="stats">
+      <div>WS · <span id="ws-state">—</span></div>
+      <div>Clutch · <span id="clutch-state">idle</span></div>
+      <div>RTT · <span id="rtt">—</span> ms</div>
+      <div><span id="recv">0</span> in / <span id="sent">0</span> out</div>
+    </div>
+    <div id="log"></div>
+  </aside>
+
+  <div class="modal" id="recalib-modal" role="dialog" aria-modal="true" aria-labelledby="recalib-title">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="recalib-title">Wrist calibration</h2>
+        <button class="icon-btn" id="recalib-close" aria-label="Close">×</button>
+      </div>
+      <div class="help">
+        <p>Aligns the IK pivot with your real wrist so twisting a controller
+        doesn't drift the arm.</p>
+        <ol>
+          <li>Press <b>Start</b>.</li>
+          <li>Once in VR, squeeze <b>both grip buttons</b> to begin capture.</li>
+          <li>Twist each hand for ~5s while keeping the wrist itself in place: the hand rotates, the wrist pivot stays still.</li>
+        </ol>
+      </div>
+      <div class="btn-row">
+        <button id="calibrate" class="btn btn-accent" disabled>Start calibration</button>
+        <button id="clear-calib" class="btn btn-danger">Reset to default</button>
+      </div>
+      <p class="calib-state" id="calib-state">no calibration stored — using default offset</p>
+    </div>
+  </div>
+
+  <div class="modal" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="modal-card">
+      <!-- Icon sprite — referenced via <use href="#ic-…"> below. Defined once,
+           reused on every slider so we don't repeat the path data. -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute" aria-hidden="true">
+        <symbol id="ic-snail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="10" cy="13" r="8"/>
+          <circle cx="10" cy="13" r="4"/>
+          <path d="M2 21h12c4.4 0 8-3.6 8-8V7a2 2 0 1 0-4 0v6"/>
+          <path d="m18 3 1 2.2"/><path d="m22 3-1 2.2"/>
+        </symbol>
+        <symbol id="ic-rabbit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 21h-8a4 4 0 0 1-4-4 7 7 0 0 1 7-7h.2L9.6 6.4a1 1 0 1 1 2.8-2.8L15.8 7h.2c3.3 0 6 2.7 6 6v1a2 2 0 0 1-2 2h-1a3 3 0 0 0-3 3"/>
+          <path d="M13 16a3 3 0 0 1 2.24 5"/>
+          <path d="M16 10s.93 2 2 2"/>
+          <path d="M20.85 10c-.83 2.34-2 4-3.85 4"/>
+        </symbol>
+        <symbol id="ic-smooth" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12 Q 7.5 4, 12 12 T 21 12"/>
+        </symbol>
+        <symbol id="ic-angular" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 18 L 8 6 L 13 18 L 18 6 L 21 12"/>
+        </symbol>
+      </svg>
+
+      <div class="modal-head">
+        <h2 id="settings-title">Settings</h2>
+        <button class="icon-btn" id="settings-close" aria-label="Close">×</button>
+      </div>
+
+      <div class="modal-body">
+      <div class="param" data-info-open="false" data-key="scale_translation" data-default="1.5">
+        <div class="param-head">
+          <label for="param-scale-translation">Translation scale</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val" id="val-scale-translation">1.5×</span>
+        </div>
+        <div class="slider-row">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-snail"/></svg>
+          <input type="range" id="param-scale-translation" min="0.5" max="5" step="0.1" value="1.5">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-rabbit"/></svg>
+        </div>
+        <p class="info-body">
+          Controller to arm translation gain.
+        </p>
+      </div>
+
+      <div class="param" data-info-open="false" data-key="scale_rotation" data-default="1.5">
+        <div class="param-head">
+          <label for="param-scale-rotation">Rotation scale</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val" id="val-scale-rotation">1.5×</span>
+        </div>
+        <div class="slider-row">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-snail"/></svg>
+          <input type="range" id="param-scale-rotation" min="0.5" max="5" step="0.1" value="1.5">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-rabbit"/></svg>
+        </div>
+        <p class="info-body">
+          Controller to arm rotation gain.
+        </p>
+      </div>
+
+      <div class="param" data-info-open="false" data-key="precision_factor" data-default="0.5">
+        <div class="param-head">
+          <label for="param-precision-factor">Precision scale</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val" id="val-precision-factor">0.50×</span>
+        </div>
+        <div class="slider-row">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-snail"/></svg>
+          <input type="range" id="param-precision-factor" min="0.05" max="1" step="0.05" value="0.5">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-rabbit"/></svg>
+        </div>
+        <p class="info-body">
+          Motion scale multiplier. Applied to translation and rotation gains.
+        </p>
+      </div>
+
+      <div class="param" data-info-open="false" data-key="pose_filter_alpha" data-default="0.8">
+        <div class="param-head">
+          <label for="param-pose-filter-alpha">Smoothing</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val" id="val-pose-filter-alpha">0.80</span>
+        </div>
+        <div class="slider-row">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-smooth"/></svg>
+          <input type="range" id="param-pose-filter-alpha" min="0.1" max="1" step="0.05" value="0.8">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-angular"/></svg>
+        </div>
+        <p class="info-body">
+          EMA filter strength. Lower values smoothen motion.
+        </p>
+      </div>
+
+      <!-- Joint Δq cap (rad/tick), split per joint group. _pos drives the
+           three shoulder/elbow joints (EE position), _rot drives the three
+           wrist joints (EE orientation); the groups stay independently
+           tunable (the defaults are currently equal). The readout
+           multiplies by the measured tick rate (loop_hz from ik_state) so
+           rad/s is honest at whatever loop is actually driving the
+           teleop. -->
+      <div class="param" data-info-open="false" data-key="max_dq_per_joint_scalar_pos" data-default="0.06">
+        <div class="param-head">
+          <label for="param-max-dq-per-joint-scalar-pos">Position velocity cap</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val" id="val-max-dq-per-joint-scalar-pos">12.0 rad/s (assumed)</span>
+        </div>
+        <div class="slider-row">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-snail"/></svg>
+          <input type="range" id="param-max-dq-per-joint-scalar-pos" min="0.005" max="0.50" step="0.005" value="0.06">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-rabbit"/></svg>
+        </div>
+        <p class="info-body">
+          Speed limit on the shoulder and elbow joints.
+        </p>
+      </div>
+
+      <div class="param" data-info-open="false" data-key="max_dq_per_joint_scalar_rot" data-default="0.06">
+        <div class="param-head">
+          <label for="param-max-dq-per-joint-scalar-rot">Rotation velocity cap</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val" id="val-max-dq-per-joint-scalar-rot">12.0 rad/s (assumed)</span>
+        </div>
+        <div class="slider-row">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-snail"/></svg>
+          <input type="range" id="param-max-dq-per-joint-scalar-rot" min="0.005" max="0.50" step="0.005" value="0.06">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-rabbit"/></svg>
+        </div>
+        <p class="info-body">
+          Speed limit on the wrist joints.
+        </p>
+      </div>
+
+      <!-- Gripper force-haptic toggle. The Calibrate button rides in the
+           same row to compact the panel — enabled iff the checkbox is
+           checked. JS keeps `body.haptic-on` in sync with the checkbox so
+           CSS can also hide the dependent threshold sliders below. -->
+      <div class="param param-toggle" data-key="force_haptic_enabled" data-default="true">
+        <div class="param-head">
+          <label for="param-force-haptic-enabled">Gripper force haptic</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val param-val-row">
+            <button id="haptic-calibrate-btn" type="button" class="btn btn-accent btn-inline" disabled
+                    title="Samples idle torque for ~5 s and writes the per-arm thresholds below.">Calibrate</button>
+            <input type="checkbox" id="param-force-haptic-enabled" checked>
+          </span>
+        </div>
+        <p class="info-body">
+          Vibrates the controller when the gripper grasps something.
+          Calibrate with still arms and empty grippers.
+        </p>
+      </div>
+
+      <!-- Per-arm deadband sliders. Calibration writes both; the sliders let
+           the operator nudge a single arm up if it still buzzes at rest, or
+           down if the calibration over-shot and real grasps no longer
+           register. Bounds match `_LIVE_CONFIG_BOUNDS` in the teleop. -->
+      <div class="param" data-info-open="false" data-haptic-only data-key="force_haptic_threshold_nm_left" data-default="0.35">
+        <div class="param-head">
+          <label for="param-force-haptic-threshold-nm-left">Haptic threshold (L)</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val" id="val-force-haptic-threshold-nm-left">0.35 Nm</span>
+        </div>
+        <div class="slider-row">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-snail"/></svg>
+          <input type="range" id="param-force-haptic-threshold-nm-left" min="0" max="1" step="0.01" value="0.35">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-rabbit"/></svg>
+        </div>
+        <p class="info-body">
+          Minimum left-gripper torque before the vibration kicks in.
+          Raise if it buzzes at rest.
+        </p>
+      </div>
+
+      <div class="param" data-info-open="false" data-haptic-only data-key="force_haptic_threshold_nm_right" data-default="0.35">
+        <div class="param-head">
+          <label for="param-force-haptic-threshold-nm-right">Haptic threshold (R)</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val" id="val-force-haptic-threshold-nm-right">0.35 Nm</span>
+        </div>
+        <div class="slider-row">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-snail"/></svg>
+          <input type="range" id="param-force-haptic-threshold-nm-right" min="0" max="1" step="0.01" value="0.35">
+          <svg class="slider-icon" aria-hidden="true"><use href="#ic-rabbit"/></svg>
+        </div>
+        <p class="info-body">
+          Minimum right-gripper torque before the vibration kicks in.
+          Raise if it buzzes at rest.
+        </p>
+      </div>
+
+
+      <!-- data-scope="ui" — client-only toggle. Not broadcast as config_update;
+           gates the webrtc_request handshake so the v4l2 cameras and encoder
+           stay completely idle when off. Default off; pose teleop is unaffected. -->
+      <div class="param param-toggle" data-key="cameras_enabled" data-default="false" data-scope="ui">
+        <div class="param-head">
+          <label for="param-cameras-enabled">Camera streaming</label>
+          <button class="info-btn" type="button" aria-label="More info">i</button>
+          <span class="param-val">
+            <input type="checkbox" id="param-cameras-enabled">
+          </span>
+        </div>
+        <p class="info-body">
+          Stream the cameras to the headset over WebRTC.
+        </p>
+      </div>
+      </div><!-- /.modal-body -->
+
+      <div class="btn-row">
+        <button id="reset-settings" class="btn btn-danger">Reset to defaults</button>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="xr-canvas"></canvas>
+
+  <!-- bump v= to force the Quest browser to refetch the JS after a change -->
+  <script src="/static/client.js?v=36"></script>
+</body>
+</html>

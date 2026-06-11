@@ -1,0 +1,11 @@
+# TLS material for the LAN transport — generated locally, never committed.
+certs/
+*.pem
+
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.DS_Store

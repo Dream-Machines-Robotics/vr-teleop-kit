@@ -1,0 +1,43 @@
+[project]
+name = "vr-teleop-kit"
+version = "0.1.0"
+description = "WebXR (Meta Quest) teleoperation kit for robot manipulators: WebSocket relay, clutch-relative pose mapping with reach limits, per-robot IK (TRLC-DK1 included), and a LeRobot Teleoperator adapter"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Aurel Arnold", email = "aurel@dream-machines.eu" }]
+keywords = ["teleoperation", "webxr", "quest", "robotics", "lerobot", "inverse-kinematics"]
+dependencies = [
+    "numpy>=1.26",
+    "mujoco>=3.2",
+    "websockets>=13",
+]
+
+[project.optional-dependencies]
+# The relay server (WebSocket broadcast + WebRTC camera streaming).
+relay = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "aiortc>=1.9",
+    "av>=12",
+    "opencv-python-headless>=4.10",
+]
+# The LeRobot Teleoperator adapter (examples additionally need the DK1
+# driver — see the README, it installs from the trlc-dk1 repository).
+lerobot = [
+    "lerobot",
+]
+
+[project.urls]
+Repository = "https://github.com/Dream-Machines-Robotics/vr-teleop-kit"
+"DK1 driver + URDF" = "https://github.com/robot-learning-co/trlc-dk1"
+
+[project.scripts]
+vr-teleop-relay = "vr_teleop_kit.relay.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vr_teleop_kit"]

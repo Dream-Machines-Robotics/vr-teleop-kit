@@ -213,18 +213,36 @@ orchestrator can poll to hand control between a policy and the operator.
 We use these for an HG-DAgger workflow built on top of this stack in our
 LeRobot fork; that workflow is not part of this repository.
 
-## Haptics requirement
+## Enabling grasp-force haptics
 
-Grasp-force haptics read the gripper torque through an optional driver
-method, `get_joint_torques()`, returning
+The grasp-force haptic (the controller buzzing as the gripper closes on an
+object) reads the gripper torque through an optional follower method,
+`get_joint_torques()`, returning
 `{"{left_,right_}gripper.torque": Nm, "{left_,right_}gripper.pos": 0..1}`.
-The stock TRLC driver does not expose it yet; we are proposing it
-upstream to
-[robot-learning-co/trlc-dk1](https://github.com/robot-learning-co/trlc-dk1).
-The teleop discovers the method via `getattr` and degrades gracefully:
-without it, everything works and only the grasp-force vibration is
-disabled (the IK-trouble haptics remain). Any driver that implements the
-method with the contract above gets the haptics for free.
+This step is optional: the teleop feature-detects the method via `getattr`
+and degrades gracefully without it, disabling only the grasp-force
+vibration (the IK-trouble haptics still fire).
+
+The stock [robot-learning-co/trlc-dk1](https://github.com/robot-learning-co/trlc-dk1)
+driver does not ship this method, but it is a small addition on top of
+plumbing the driver already has (`Motor.getTorque()`, which it calls during
+gripper homing). Add to `DK1Follower`:
+
+```python
+def get_joint_torques(self) -> dict[str, float]:
+    # Side-channel for haptics; keep it OUT of observation_features so it
+    # never enters the dataset schema. Return {} if torque is unavailable.
+    self.control.refresh_motor_status(self.motors["gripper"])
+    return {
+        "gripper.torque": float(self.motors["gripper"].getTorque()),
+        "gripper.pos":    ...,  # gripper position normalized to 0..1
+    }
+```
+
+and mirror it on `BiDK1Follower` by calling each arm's `get_joint_torques()`
+and prefixing the keys with `left_` / `right_`. Any driver that implements
+the method with this contract gets grasp-force haptics with no other
+changes.
 
 ## Configuration that is DK1-specific
 

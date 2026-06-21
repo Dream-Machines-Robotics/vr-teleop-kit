@@ -210,20 +210,21 @@ class BiQuestTeleoperatorConfig(TeleoperatorConfig):
     # The web UI exposes two scalar shortcuts (`_pos` for joints 1-3 driving
     # EE position, `_rot` for joints 4-6 driving EE orientation) — operators
     # found that one shared cap held wrist motion back while position was
-    # fine, so the groups stay independently tunable. Defaults: 0.06
-    # rad/tick for BOTH groups (12 rad/s at a 200 Hz loop, 3 rad/s at
-    # 50 Hz). Rotation originally defaulted higher for wrist headroom;
-    # after the reach limits landed it was tuned down to match position
-    # on hardware — still responsive, and any residual catch-up after
-    # pressing into a limit stays gentle.
-    max_dq_per_joint: list[float] | None = field(default_factory=lambda: [0.06] * 6)
+    # fine, so the groups stay independently tunable. Defaults: position
+    # 0.06 rad/tick (12 rad/s at a 200 Hz loop, 3 rad/s at 50 Hz), rotation
+    # 0.24 rad/tick (48 rad/s @ 200 Hz). The wrist needs the higher cap: at
+    # 0.06 it felt sluggish and held wrist motion back during fine tasks, so
+    # rotation is set 4x higher than position.
+    max_dq_per_joint: list[float] | None = field(
+        default_factory=lambda: [0.06, 0.06, 0.06, 0.24, 0.24, 0.24]
+    )
     # Web-tunable shortcuts. Writing either through `config_update` (a)
     # rebuilds `max_dq_per_joint = [pos]*3 + [rot]*3` and (b) pushes the
     # new array into each live DecoupledIKSolver, so a slider drag takes
     # effect on the very next solve. Initial values mirror the per-joint
     # default above; not used as a source-of-truth after that.
     max_dq_per_joint_scalar_pos: float = 0.06
-    max_dq_per_joint_scalar_rot: float = 0.06
+    max_dq_per_joint_scalar_rot: float = 0.24  # 4x position (48 rad/s @ 200 Hz)
     # ── Force haptic (gripper torque → controller vibration) ──
     # Linear scaling with a dead zone:
     #   intensity = clip((|τ| - threshold) / (max - threshold), 0, 1)
